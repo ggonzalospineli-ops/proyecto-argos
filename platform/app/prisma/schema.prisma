@@ -1,0 +1,315 @@
+// Prisma schema — implementación de DATABASE_SCHEMA.md (Fase 2)
+// Alcance: entidades MVP únicamente (ver ../ENTITY_CATALOG.md)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum EntityStatus {
+  ACTIVE
+  DEPRECATED
+}
+
+enum ComponentType {
+  HARDWARE
+  SOFTWARE
+  ASSEMBLY
+}
+
+enum ComponentStatus {
+  DRAFT
+  DESIGN
+  PROTOTYPE
+  TESTING
+  VALIDATED
+  RELEASED
+  DEPRECATED
+}
+
+enum RevisionStatus {
+  DRAFT
+  RELEASED
+  DEPRECATED
+}
+
+enum DocumentEntityType {
+  SYSTEM
+  COMPONENT
+  REVISION
+  BUILD
+  TEST
+}
+
+enum DocumentStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum DependencyType {
+  DEPENDS_ON
+  CONTAINS
+  COMPATIBLE_WITH
+}
+
+enum BuildStatus {
+  PLANNED
+  ASSEMBLED
+  TESTING
+  ARCHIVED
+}
+
+enum TestResult {
+  PASS
+  FAIL
+  INCONCLUSIVE
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(MEMBER)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  revisions Revision[]
+  artifacts Artifact[]
+  documents Document[]
+  tests     Test[]
+
+  @@map("users")
+}
+
+model Project {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  systems    System[]
+  components Component[]
+  builds     Build[]
+
+  @@map("projects")
+}
+
+model System {
+  id              String       @id @default(uuid())
+  projectId       String       @map("project_id")
+  parentSystemId  String?      @map("parent_system_id")
+  name            String
+  description     String?
+  status          EntityStatus @default(ACTIVE)
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  project      Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentSystem System?     @relation("SystemToSubsystem", fields: [parentSystemId], references: [id], onDelete: Cascade)
+  subsystems   System[]    @relation("SystemToSubsystem")
+  components   Component[]
+
+  @@index([projectId])
+  @@index([parentSystemId])
+  @@map("systems")
+}
+
+model Component {
+  id                 String          @id @default(uuid())
+  projectId          String          @map("project_id")
+  parentSystemId     String?         @map("parent_system_id")
+  parentComponentId  String?         @map("parent_component_id")
+  name               String
+  type               ComponentType
+  description        String?
+  status             ComponentStatus @default(DRAFT)
+  currentRevisionId  String?         @unique @map("current_revision_id")
+  ownerId            String?         @map("owner_id")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+
+  project         Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentSystem    System?     @relation(fields: [parentSystemId], references: [id], onDelete: Cascade)
+  parentComponent Component?  @relation("ComponentToChild", fields: [parentComponentId], references: [id], onDelete: Cascade)
+  children        Component[] @relation("ComponentToChild")
+
+  revisions Revision[] @relation("ComponentRevisions")
+  currentRevision Revision? @relation("CurrentRevision", fields: [currentRevisionId], references: [id])
+
+  dependenciesFrom ComponentDependency[] @relation("DependencyFrom")
+  dependenciesTo   ComponentDependency[] @relation("DependencyTo")
+
+  bomLinesAsParent BomLine[] @relation("BomParent")
+  bomLinesAsChild  BomLine[] @relation("BomChild")
+
+  buildComponents BuildComponent[]
+  testsAsTarget   Test[]
+
+  @@index([projectId])
+  @@index([parentSystemId])
+  @@index([parentComponentId])
+  @@map("components")
+}
+
+model Revision {
+  id                 String         @id @default(uuid())
+  componentId        String         @map("component_id")
+  label              String
+  status             RevisionStatus @default(DRAFT)
+  description        String?
+  changeSummary      String?        @map("change_summary")
+  authorId           String         @map("author_id")
+  previousRevisionId String?        @map("previous_revision_id")
+  createdAt          DateTime       @default(now()) @map("created_at")
+
+  component        Component  @relation("ComponentRevisions", fields: [componentId], references: [id], onDelete: Cascade)
+  currentOfComponent Component? @relation("CurrentRevision")
+  author           User       @relation(fields: [authorId], references: [id])
+  previousRevision Revision?  @relation("RevisionHistory", fields: [previousRevisionId], references: [id])
+  nextRevisions    Revision[] @relation("RevisionHistory")
+
+  artifacts       Artifact[]
+  buildComponents BuildComponent[]
+
+  @@unique([componentId, label])
+  @@index([componentId])
+  @@map("revisions")
+}
+
+model Artifact {
+  id          String   @id @default(uuid())
+  revisionId  String   @map("revision_id")
+  filename    String
+  fileType    String   @map("file_type")
+  sizeBytes   BigInt   @map("size_bytes")
+  checksum    String
+  storageKey  String   @map("storage_key")
+  uploadedById String  @map("uploaded_by")
+  uploadedAt  DateTime @default(now()) @map("uploaded_at")
+
+  revision Revision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  uploadedBy User    @relation(fields: [uploadedById], references: [id])
+
+  @@index([revisionId])
+  @@map("artifacts")
+}
+
+model Document {
+  id               String             @id @default(uuid())
+  title            String
+  contentMarkdown  String             @map("content_markdown")
+  entityType       DocumentEntityType @map("entity_type")
+  entityId         String             @map("entity_id")
+  status           DocumentStatus     @default(DRAFT)
+  authorId         String             @map("author_id")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+
+  author User @relation(fields: [authorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@map("documents")
+}
+
+model ComponentDependency {
+  id               String         @id @default(uuid())
+  fromComponentId  String         @map("from_component_id")
+  toComponentId    String         @map("to_component_id")
+  type             DependencyType
+  notes            String?
+  createdAt        DateTime       @default(now()) @map("created_at")
+
+  fromComponent Component @relation("DependencyFrom", fields: [fromComponentId], references: [id], onDelete: Cascade)
+  toComponent   Component @relation("DependencyTo", fields: [toComponentId], references: [id], onDelete: Cascade)
+
+  @@unique([fromComponentId, toComponentId, type])
+  @@index([fromComponentId])
+  @@index([toComponentId])
+  @@map("component_dependencies")
+}
+
+model BomLine {
+  id                  String    @id @default(uuid())
+  parentComponentId   String    @map("parent_component_id")
+  childComponentId    String    @map("child_component_id")
+  quantity            Int       @default(1)
+  childRevisionId     String?   @map("child_revision_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  parentComponent Component @relation("BomParent", fields: [parentComponentId], references: [id], onDelete: Cascade)
+  childComponent  Component @relation("BomChild", fields: [childComponentId], references: [id], onDelete: Cascade)
+
+  @@unique([parentComponentId, childComponentId])
+  @@map("bom_lines")
+}
+
+model Build {
+  id          String      @id @default(uuid())
+  projectId   String      @map("project_id")
+  code        String
+  description String?
+  status      BuildStatus @default(PLANNED)
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  buildComponents BuildComponent[]
+  tests           Test[]
+
+  @@unique([projectId, code])
+  @@map("builds")
+}
+
+model BuildComponent {
+  id          String @id @default(uuid())
+  buildId     String @map("build_id")
+  componentId String @map("component_id")
+  revisionId  String @map("revision_id")
+
+  build     Build     @relation(fields: [buildId], references: [id], onDelete: Cascade)
+  component Component @relation(fields: [componentId], references: [id])
+  revision  Revision  @relation(fields: [revisionId], references: [id])
+
+  @@unique([buildId, componentId])
+  @@index([buildId])
+  @@index([componentId])
+  @@map("build_components")
+}
+
+model Test {
+  id                 String     @id @default(uuid())
+  name               String
+  targetComponentId  String     @map("target_component_id")
+  buildId            String?    @map("build_id")
+  description        String?
+  result             TestResult @default(INCONCLUSIVE)
+  notes              String?
+  date               DateTime
+  createdById        String     @map("created_by")
+  createdAt          DateTime   @default(now()) @map("created_at")
+
+  targetComponent Component @relation(fields: [targetComponentId], references: [id])
+  build           Build?    @relation(fields: [buildId], references: [id])
+  createdBy       User      @relation(fields: [createdById], references: [id])
+
+  @@index([targetComponentId])
+  @@index([buildId])
+  @@map("tests")
+}

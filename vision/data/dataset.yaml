@@ -1,0 +1,19 @@
+# Dataset ARGOS-1 - formato YOLO (Ultralytics)
+# Estructura esperada:
+#   data/images/train/*.jpg  data/labels/train/*.txt
+#   data/images/val/*.jpg    data/labels/val/*.txt
+#
+# Cada .txt de label: una linea por objeto -> "<class_id> <x_center> <y_center> <w> <h>" normalizado [0,1]
+# Exportar en este formato directamente desde Roboflow (opcion "YOLOv8").
+
+path: .
+train: images/train
+val: images/val
+
+names:
+  0: persona
+  1: vehiculo_4x4
+  2: lancha_rapida
+  3: embarcacion
+  4: moto
+  5: dron

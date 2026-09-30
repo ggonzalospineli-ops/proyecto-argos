@@ -1,0 +1,2 @@
+# Ademas de esto, instalar los requirements de ../vision y ../comms
+websockets>=13.0

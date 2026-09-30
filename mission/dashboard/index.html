@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARGOS-1 · Ground Control</title>
+<style>
+  :root {
+    --bg: #0a0e14;
+    --panel: #10161f;
+    --panel-border: #1e2a3a;
+    --text: #d5dde8;
+    --text-dim: #6b7a8f;
+    --accent: #3ddc84;
+    --accent-dim: #1f6b45;
+    --warn: #ffb454;
+    --danger: #ff5f5f;
+    --mono: 'Consolas', 'SF Mono', 'Cascadia Code', monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--panel-border);
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-size: 15px;
+    letter-spacing: 2px;
+    margin: 0;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  header h1 span { color: var(--text-dim); font-weight: normal; letter-spacing: 0; }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .status .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--danger);
+    box-shadow: 0 0 8px var(--danger);
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+
+  .status.connected .dot {
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+  }
+
+  main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  .video-panel {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    position: relative;
+    min-width: 0;
+  }
+
+  .video-panel img {
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+  }
+
+  .video-panel .placeholder {
+    color: var(--text-dim);
+    font-size: 13px;
+    text-align: center;
+    letter-spacing: 1px;
+  }
+
+  .video-panel .hud {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    font-size: 11px;
+    color: var(--accent);
+    background: rgba(0,0,0,0.5);
+    padding: 4px 8px;
+    border-radius: 3px;
+    letter-spacing: 1px;
+  }
+
+  aside {
+    width: 320px;
+    flex-shrink: 0;
+    background: var(--panel);
+    border-left: 1px solid var(--panel-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .section {
+    border-bottom: 1px solid var(--panel-border);
+    padding: 14px 16px;
+  }
+
+  .section h2 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    margin: 0 0 10px 0;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .stat { }
+  .stat .value { font-size: 20px; color: var(--text); }
+  .stat .label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; }
+
+  .detections-list {
+    flex: 0 0 auto;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+
+  .detection-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 12px;
+  }
+
+  .detection-item:last-child { border-bottom: none; }
+
+  .badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+  }
+
+  .badge.confirmed { background: var(--accent-dim); color: var(--accent); }
+  .badge.single { background: #3a3320; color: var(--warn); }
+
+  .empty-msg { color: var(--text-dim); font-size: 12px; }
+
+  .alert-log {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .alert-item {
+    font-size: 11px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    color: var(--text);
+  }
+
+  .alert-item .ts { color: var(--text-dim); margin-right: 6px; }
+  .alert-item .cls { color: var(--accent); font-weight: bold; }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--panel-border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ARGOS-1 <span>/ Ground Control Dashboard</span></h1>
+  <div class="status" id="status">
+    <div class="dot"></div>
+    <span id="statusText">DESCONECTADO</span>
+  </div>
+</header>
+
+<main>
+  <div class="video-panel">
+    <img id="videoFrame" style="display:none;">
+    <div class="placeholder" id="placeholder">ESPERANDO SEÑAL DEL DRON&hellip;</div>
+    <div class="hud" id="hud" style="display:none;"></div>
+  </div>
+
+  <aside>
+    <div class="section">
+      <h2>Enlace</h2>
+      <div class="stats-grid">
+        <div class="stat"><div class="value" id="fpsValue">0.0</div><div class="label">FPS</div></div>
+        <div class="stat"><div class="value" id="frameValue">0</div><div class="label">Frame ID</div></div>
+        <div class="stat"><div class="value" id="detCountValue">0</div><div class="label">Detecciones</div></div>
+        <div class="stat"><div class="value" id="totalValue">0</div><div class="label">Frames totales</div></div>
+      </div>
+    </div>
+
+    <div class="section detections-list">
+      <h2>Detecciones actuales</h2>
+      <div id="detectionsList"><div class="empty-msg">Sin detecciones en este frame.</div></div>
+    </div>
+
+    <div class="section alert-log" style="border-bottom:none;">
+      <h2>Registro de alertas (confirmadas)</h2>
+      <div id="alertLog"><div class="empty-msg">Sin alertas todavia.</div></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+(function () {
+  const params = new URLSearchParams(location.search);
+  const wsUrl = params.get('ws') || `ws://${location.hostname || '127.0.0.1'}:8765`;
+
+  const statusEl = document.getElementById('status');
+  const statusText = document.getElementById('statusText');
+  const videoEl = document.getElementById('videoFrame');
+  const placeholderEl = document.getElementById('placeholder');
+  const hudEl = document.getElementById('hud');
+  const fpsValue = document.getElementById('fpsValue');
+  const frameValue = document.getElementById('frameValue');
+  const detCountValue = document.getElementById('detCountValue');
+  const totalValue = document.getElementById('totalValue');
+  const detectionsList = document.getElementById('detectionsList');
+  const alertLog = document.getElementById('alertLog');
+
+  let frameTimestamps = [];
+  let totalFrames = 0;
+  let reconnectDelay = 1000;
+  const MAX_ALERTS = 60;
+  const seenAlertKeys = new Set();
+
+  function setConnected(connected) {
+    statusEl.classList.toggle('connected', connected);
+    statusText.textContent = connected ? 'CONECTADO' : 'DESCONECTADO';
+  }
+
+  function updateFps() {
+    const now = performance.now();
+    frameTimestamps.push(now);
+    frameTimestamps = frameTimestamps.filter(t => now - t < 3000);
+    const fps = frameTimestamps.length > 1
+      ? (frameTimestamps.length - 1) / ((frameTimestamps[frameTimestamps.length - 1] - frameTimestamps[0]) / 1000)
+      : 0;
+    fpsValue.textContent = fps.toFixed(1);
+  }
+
+  function renderDetections(detections) {
+    detCountValue.textContent = detections.length;
+    if (!detections.length) {
+      detectionsList.innerHTML = '<div class="empty-msg">Sin detecciones en este frame.</div>';
+      return;
+    }
+    detectionsList.innerHTML = detections.map(d => `
+      <div class="detection-item">
+        <span>${escapeHtml(d.cls)} <span style="color:var(--text-dim)">${(d.conf * 100).toFixed(0)}%</span></span>
+        <span class="badge ${d.cross_confirmed ? 'confirmed' : 'single'}">
+          ${d.cross_confirmed ? 'CONFIRMADO' : 'ESPECTRO ÚNICO'}
+        </span>
+      </div>
+    `).join('');
+  }
+
+  function pushAlerts(frameId, ts, detections) {
+    const confirmed = detections.filter(d => d.cross_confirmed);
+    confirmed.forEach(d => {
+      const key = `${frameId}:${d.cls}:${d.bbox.join(',')}`;
+      if (seenAlertKeys.has(key)) return;
+      seenAlertKeys.add(key);
+      const time = new Date(ts * 1000).toLocaleTimeString('es-AR', { hour12: false });
+      const item = document.createElement('div');
+      item.className = 'alert-item';
+      item.innerHTML = `<span class="ts">${time}</span><span class="cls">${escapeHtml(d.cls)}</span> (${(d.conf * 100).toFixed(0)}%) — frame ${frameId}`;
+      if (alertLog.querySelector('.empty-msg')) alertLog.innerHTML = '';
+      alertLog.prepend(item);
+      while (alertLog.children.length > MAX_ALERTS) alertLog.removeChild(alertLog.lastChild);
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function connect() {
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      setConnected(true);
+      reconnectDelay = 1000;
+    };
+
+    ws.onclose = () => {
+      setConnected(false);
+      setTimeout(connect, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
+    };
+
+    ws.onerror = () => ws.close();
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      const detections = data.detections || [];
+
+      if (data.jpeg_b64) {
+        videoEl.src = 'data:image/jpeg;base64,' + data.jpeg_b64;
+        videoEl.style.display = 'block';
+        placeholderEl.style.display = 'none';
+        hudEl.style.display = 'block';
+      }
+
+      totalFrames += 1;
+      updateFps();
+      frameValue.textContent = data.frame_id ?? '—';
+      totalValue.textContent = totalFrames;
+      hudEl.textContent = `FRAME ${data.frame_id} · ${detections.length} DET.`;
+
+      renderDetections(detections);
+      pushAlerts(data.frame_id, data.ts || (Date.now() / 1000), detections);
+    };
+  }
+
+  connect();
+})();
+</script>
+
+</body>
+</html>
